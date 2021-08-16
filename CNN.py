@@ -1,11 +1,10 @@
-from typing_extensions import final
 import numpy as np
 # import numpy as np
 from numpy.core.shape_base import stack
 from tensorflow.keras.datasets import mnist
 import time
 from tensorflow.keras.utils import to_categorical
-
+import numpy.lib.stride_tricks as nx
 
 #np.shape(sets,rows per set, columns per row)
 (X_train, Y_train), (X_test, Y_test) = mnist.load_data()
@@ -64,36 +63,25 @@ class NeuralNet():
         i_s,i_r,i_c=input.shape
         f_s,f_r,f_c=filter.shape
 
-        output_shape=(i_r-(f_r-1))
+        # output_shape=(i_r-(f_r-1))
         input=input.reshape(i_r,i_c)
         filter=filter.reshape(f_r,f_c)
         # print(output_shape)
         input= np.pad(input, 1, mode='constant')
 
-        self.feature_map=[]
-
-        for r in range(output_shape+2):
-            output_row=[]
-            for c in range(output_shape+2):
-                current_i=input[r:r+3,c:c+3]
-                value= np.tensordot(filter,current_i,axes=2)
-
-                value=self.Relu(value) #activation function
-                output_row.append(value)
-            self.feature_map.append(output_row)
-            
-
-        self.feature_map=np.array(self.feature_map)
-        return self.feature_map
+        a=nx.sliding_window_view(input, (f_r,f_c))
+        a=a.reshape(a.shape[0]*a.shape[1],a.shape[2],a.shape[3])
+        feature_map=np.tensordot(a,filter,axes=2)
+        feature_map=feature_map.reshape(i_r,i_c)
+        # print(feature_map.shape)
+        # time.sleep(5)
+        return feature_map
 
     def convolution_2(self,input,filter,stride=1):
-        # print(input.shape,filter.shape)
-        # input()
-
         i_s,i_r,i_c=input.shape
         f_ss,f_s,f_r,f_c=filter.shape
 
-        output_shape=(i_r-(f_r-1))
+        # output_shape=(i_r-(f_r-1))
         input=input.reshape(i_s,i_r,i_c)
         filter=filter.reshape(f_s,f_r,f_c)
         # print(input.shape,filter.shape,output_shape)
@@ -102,26 +90,21 @@ class NeuralNet():
         input=np.pad(input,pad_width=p_width,mode='constant',constant_values=0)
         # print(input.shape)
 
-        self.feature_map=[]
+        feature_map=[]
 
-        for r in range(output_shape+2):
-            output_row=[]
-            for c in range(output_shape+2):
-                current_i=input[:,r:r+3,c:c+3]
-                value= np.tensordot(filter,current_i,axes=3) #modified till here for 2 layers
+        a=nx.sliding_window_view(input, (f_s,f_r,f_c))
+        a=np.squeeze(a)
+        
+        a=a.reshape(a.shape[0]*a.shape[1],a.shape[2],a.shape[3],a.shape[4])
+        feature_map=np.tensordot(a,filter,axes=3)
+        feature_map=feature_map.reshape(i_r,i_c)
+        # print(feature_map.shape)
+        # time.sleep(10)
 
-                value=self.Relu(value) #activation function
-                output_row.append(value)
-            # print(len(output_row))
-            # time.sleep(20)
-            # input()
-            self.feature_map.append(output_row)
-            
-
-        self.feature_map=np.array(self.feature_map)
+        # self.feature_map=np.array(feature_map)
         # print(self.feature_map.shape)
         # time.sleep(1)
-        return self.feature_map
+        return feature_map
 
     def full_convolution_1(self,image_data,stride=1):
         self.stacked_feature_maps_16=[]
@@ -368,58 +351,41 @@ class NeuralNet():
 
 
 
-    def error_for_input_conv2(self,stacked_error_feature_maps,pooled_sfm_1):
-        # p_width=((0,0),(1,1),(1,1))
-        # pooled_sfm_1=np.pad(pooled_sfm_1,pad_width=p_width,mode='constant',constant_values=0)
-        i_s,i_r,i_c=pooled_sfm_1.shape #input (16,16,16) after padding or (16,14,14) before
-        # print(pooled_sfm_1.shape)
-        # time.sleep(20)
-        f_ss,f_s,f_r,f_c=self.round_32.shape #filter (32,16,3,3)
-        e_s,e_r,e_c=stacked_error_feature_maps.shape #output (32,16,16)
-        # print(e_s,e_r,e_c)
-        # time.sleep(20)
-        tracker={}
-        for ss in range(f_ss):
-            for s in range(e_s):
-                for r in range(e_r-2):
-                    for c in range(e_c-2):
-                        error=stacked_error_feature_maps[s][r][c]
-                        if error!=0:
-                            count=0
-                            # input=[(s,r,c),(s,r,c+1),(s,r,c+2),(s,r+1,c),(s,r+1,c+1),(s,r+1,c+2),(s,r+2,c),(s,r+2,c+1),(s,r+2,c+2)]
-                            input=[]
-                            for i in range(16):
-                                input.extend([(i,r,c),(i,r,c+1),(i,r,c+2),(i,r+1,c),(i,r+1,c+1),(i,r+1,c+2),(i,r+2,c),(i,r+2,c+1),(i,r+2,c+2)])
-                            # filter=self.round_32[ss:ss+1,s:s+1,:,:].flatten()
-                            filter=self.round_32[ss:ss+1,:,:,:].flatten()
-                            for item in input:
-                                if item[1]!=0 and item[1]!=(i_r-1) and item[2]!=0 and item[2]!=(i_c-1): #not sure if put here or in 2nd part
-                                    if item in tracker:
-                                        # tracker[item]=tracker.get(item).append((s,r,c,filter[count])) 
-                                        # tracker[item]=tracker.get(item).append(error*filter[count]) #alternative idea that saves all errors in a list
-                                        tracker[item]=tracker.get(item)+(error*filter[count])
-                                    elif item not in tracker:
-                                        # tracker[item]=[(s,r,c,filter[count])] #saves error cell + weight as a tuple
-                                        # tracker[item]=[error*filter[count]] #alternative idea that saves all errors in a list
-                                        # print(filter.shape,count,ss,s,r,c)
-                                        tracker[item]=error*filter[count]
+    def error_for_input_conv2(self,stacked_error_feature_maps):
+        mod_stacked_error_feature_maps=np.c_[stacked_error_feature_maps,np.zeros((32,14,2))]
+        temp_kernel=np.copy(self.round_32)
+        # e_s,e_r,e_c=mod_stacked_error_feature_maps.shape #(32,14,17)
+        f_ss,f_s,f_r,f_c=temp_kernel.shape #filter (32,16,3,17)
+        #run through all 16 filter layers over 1 single layer of mod_stacked. then repeat 32 times and average it out
+        final_list=[]
+        for i in range(f_ss):
+            input=mod_stacked_error_feature_maps[i:i+1,:,:]
+            input=input.flatten()
+            #remove last 2 pixels here maybe?\
+            input=np.delete(input,[input.shape[0]-1,input.shape[0]-2])
+            temp_list=[]
+            for u in range(f_s):
+                kernel=temp_kernel[i:i+1,u:u+1,:,:]
+                kernel=kernel.flatten()
+                kernel=np.insert(kernel,3,np.zeros(13))
+                kernel=np.insert(kernel,19,np.zeros(13))
+                # print(kernel)
+                # time.sleep(10)
 
-                                count=count+1
-        
+                test=np.convolve(input,kernel,'full')
+                # test=np.delete(test,[256,257])
+                test=test.reshape(16,16)
+                temp_list.append(test)
+            temp_list=np.array(temp_list)
+            final_list.append(temp_list)
+        final_list=np.array(final_list)
 
-        #above part computes for each pixel that carries an error from backprop so far, what are the input pixels that contributed to each and 
-        #what was the weight it contributed to it with. returns a dict that stores the key as input pixel, and output as a 4-item tuple where:
-        #s=set,r=row,c=column of the pixel that carried the error and 4th item is the filter weight used
-        backpropped_error=np.zeros(pooled_sfm_1.shape)
-        for item in tracker:
-            # error_list=tracker.get(item)
-            total_error_for_node=tracker.get(item)
-            s,r,c=item
-            # print(s,r,c,backpropped_error.shape)
-            backpropped_error[s][r][c]=total_error_for_node
-        # print(backpropped_error.shape,"here")
-        # time.sleep(20)
-        return backpropped_error
+        final_list=final_list[:,:,1:-1,1:-1]
+
+        final_list=np.mean(final_list,axis=0)
+
+
+        return final_list
         
 
     def fcl_1(self,mini_batch,truth_mini_batch,learning_rate=0.005):
@@ -449,7 +415,7 @@ class NeuralNet():
             predicted_list=self.softmax()
             predicted=np.argmax(predicted_list)
             predicted_y=np.argmax(cur_truth)
-            print(predicted_list)
+            # print(predicted_list)
      
             loss=loss+(predicted_list[predicted_y]-cur_truth[predicted_y])
            
@@ -463,7 +429,7 @@ class NeuralNet():
             # print(stacked_error_feature_maps.shape)
             # time.sleep(20)
             new_filter_grad_2=new_filter_grad_2+self.backprop_filter_2(stacked_error_feature_maps,pooled_sfm_1)
-            backpropped_error=self.error_for_input_conv2(stacked_error_feature_maps,pooled_sfm_1)
+            backpropped_error=self.error_for_input_conv2(stacked_error_feature_maps)
             stacked_error_feature_maps=self.backprop_maxpool_1(sfm_1.shape,backpropped_error,stacked_value_index_list_1)
             new_filter_grad=new_filter_grad+self.backprop_filter_1(stacked_error_feature_maps,cur_sample)
            
@@ -498,6 +464,7 @@ class NeuralNet():
 
             if predicted==predicted_y:
                 correct+=1
+        print('test Accuracy:---------------------------------------------')
         return correct/(test_truth_batch.shape[0])
 
 
@@ -509,20 +476,20 @@ learning_rate=0.005
 count=0
 
 
-for i in range(2):
-    for i in range(500):
+for i in range(10):
+    for i in range(train_mini_batches.shape[0]):
         if count>5:
             learning_rate=(learning_rate*0.99)
             count=0
         cur_mini_batch= train_mini_batches[i:i+1,:,:,:]
         cur_truth_mini_batches=truth_mini_batches[i:i+1,:]
-    
+
         cur_truth_mini_batches=cur_truth_mini_batches.reshape(10,10)
         cur_mini_batch=cur_mini_batch.reshape(10,28,28)
-    
+
         avg_Weight_grad,avg_filter_grad,correct,learning_rate,loss=Tester.fcl_1(cur_mini_batch,cur_truth_mini_batches,learning_rate)
         print(correct,learning_rate,loss)
         count+=1
 
 
-print(Tester.test(X_test,Y_test))
+    print(Tester.test(X_test,Y_test))
